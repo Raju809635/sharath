@@ -186,9 +186,13 @@ Edit `components/ContactSection.tsx` to update:
 
 ## 🔐 Environment Variables
 
-No environment variables required for the basic setup. For contact form functionality, you may want to add:
+The AI difficulty analyzer uses Groq from a server-only API route. Add these values to `.env.local`:
 
 ```
+GROQ_API_KEY=your-groq-api-key
+GROQ_MODEL=openai/gpt-oss-120b
+GROQ_BASE_URL=https://api.groq.com/openai/v1
+GROQ_MAX_COMPLETION_TOKENS=320
 NEXT_PUBLIC_CONTACT_EMAIL=your-email@example.com
 ```
 

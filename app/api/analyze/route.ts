@@ -9,13 +9,11 @@ type DifficultyResult = {
   recommendation: string;
 };
 
-type OpenAIResponse = {
-  output_text?: string;
-  output?: Array<{
-    content?: Array<{
-      text?: string;
-      type?: string;
-    }>;
+type GroqResponse = {
+  choices?: Array<{
+    message?: {
+      content?: string;
+    };
   }>;
   error?: {
     message?: string;
@@ -28,16 +26,8 @@ function clampScore(value: unknown) {
   return Math.max(0, Math.min(10, Number(score.toFixed(1))));
 }
 
-function extractText(payload: OpenAIResponse) {
-  if (payload.output_text) return payload.output_text;
-
-  return (
-    payload.output
-      ?.flatMap((item) => item.content ?? [])
-      .map((content) => content.text)
-      .filter(Boolean)
-      .join('\n') ?? ''
-  );
+function extractText(payload: GroqResponse) {
+  return payload.choices?.map((choice) => choice.message?.content).filter(Boolean).join('\n') ?? '';
 }
 
 function parseResult(text: string): DifficultyResult {
@@ -64,12 +54,14 @@ function parseResult(text: string): DifficultyResult {
 }
 
 export async function POST(request: Request) {
-  const apiKey = process.env.OPENAI_API_KEY;
-  const model = process.env.OPENAI_MODEL || 'gpt-4.1-mini';
+  const apiKey = process.env.GROQ_API_KEY;
+  const model = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
+  const baseUrl = process.env.GROQ_BASE_URL || 'https://api.groq.com/openai/v1';
+  const maxCompletionTokens = Number(process.env.GROQ_MAX_COMPLETION_TOKENS || 320);
 
   if (!apiKey) {
     return NextResponse.json(
-      { error: 'OPENAI_API_KEY is not configured on the server.' },
+      { error: 'GROQ_API_KEY is not configured on the server.' },
       { status: 503 },
     );
   }
@@ -87,7 +79,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const response = await fetch('https://api.openai.com/v1/responses', {
+  const response = await fetch(`${baseUrl}/chat/completions`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -95,9 +87,15 @@ export async function POST(request: Request) {
     },
     body: JSON.stringify({
       model,
-      instructions:
-        'You are an educational measurement assistant. Score learning concept difficulty for curriculum sequencing. Return only compact JSON.',
-      input: `Analyze this learning concept.
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You are an educational measurement assistant. Score learning concept difficulty for curriculum sequencing. Return only compact JSON.',
+        },
+        {
+          role: 'user',
+          content: `Analyze this learning concept.
 
 Concept: ${conceptName}
 Description: ${description}
@@ -111,15 +109,18 @@ Return JSON with exactly these fields:
   "summary": "one short sentence explaining the difficulty",
   "recommendation": "one short sequencing recommendation"
 }`,
-      max_output_tokens: 320,
+        },
+      ],
+      response_format: { type: 'json_object' },
+      max_completion_tokens: Number.isFinite(maxCompletionTokens) ? maxCompletionTokens : 320,
     }),
   });
 
-  const payload = (await response.json().catch(() => ({}))) as OpenAIResponse;
+  const payload = (await response.json().catch(() => ({}))) as GroqResponse;
 
   if (!response.ok) {
     return NextResponse.json(
-      { error: payload.error?.message || 'OpenAI request failed.' },
+      { error: payload.error?.message || 'Groq request failed.' },
       { status: response.status },
     );
   }
