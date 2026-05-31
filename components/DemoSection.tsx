@@ -6,7 +6,14 @@ import { useMemo, useState } from 'react';
 import { PolarAngleAxis, PolarGrid, Radar, RadarChart, ResponsiveContainer, Tooltip } from 'recharts';
 import { Container, Section, SectionTitle } from './Section';
 
-type Results = { nlp: number; irt: number; graph: number; final: number };
+type Results = {
+  nlp: number;
+  irt: number;
+  graph: number;
+  final: number;
+  summary?: string;
+  recommendation?: string;
+};
 
 function clamp(score: number) {
   return Math.max(0, Math.min(10, Number(score.toFixed(1))));
@@ -44,6 +51,8 @@ export function DemoSection() {
   const [description, setDescription] = useState('Algorithms that learn patterns from data without explicit programming');
   const [results, setResults] = useState<Results | null>(estimateDifficulty(conceptName, description));
   const [errors, setErrors] = useState<{ conceptName?: string; description?: string }>({});
+  const [apiError, setApiError] = useState('');
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   const chartData = useMemo(
     () =>
@@ -57,20 +66,41 @@ export function DemoSection() {
     [results],
   );
 
-  const handleAnalyze = () => {
+  const handleAnalyze = async () => {
     const nextErrors = {
       conceptName: conceptName.trim() ? undefined : 'Enter a concept name.',
       description: description.trim().length >= 20 ? undefined : 'Add at least 20 characters.',
     };
     setErrors(nextErrors);
     if (nextErrors.conceptName || nextErrors.description) return;
-    setResults(estimateDifficulty(conceptName, description));
+    setApiError('');
+    setIsAnalyzing(true);
+
+    try {
+      const response = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conceptName, description }),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'AI analysis failed.');
+      }
+
+      setResults(data);
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : 'AI analysis failed.');
+      setResults(estimateDifficulty(conceptName, description));
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
   return (
     <Section id="demo" className="bg-white dark:bg-slate-900">
       <Container>
-        <SectionTitle subtitle="Try a lightweight, deterministic sample analyzer">Interactive Demo</SectionTitle>
+        <SectionTitle subtitle="Try an AI-backed concept difficulty analyzer">Interactive Demo</SectionTitle>
         <div className="grid gap-8 lg:grid-cols-2 lg:gap-12">
           <motion.div initial={{ opacity: 0, x: -20 }} whileInView={{ opacity: 1, x: 0 }} viewport={{ once: true }} className="rounded-2xl border-2 border-slate-200 bg-slate-50 p-8 dark:border-slate-700 dark:bg-slate-800/70">
             <h3 className="mb-6 text-2xl font-bold text-slate-900 dark:text-white">Concept Analyzer</h3>
@@ -85,9 +115,10 @@ export function DemoSection() {
                 <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={5} className="w-full resize-none rounded-lg border border-slate-300 bg-white px-4 py-3 text-slate-900 outline-none transition focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white" placeholder="Describe the learning concept..." />
                 {errors.description && <span className="mt-1 flex items-center gap-1 text-xs text-rose-500"><AlertCircle className="h-3 w-3" />{errors.description}</span>}
               </label>
-              <button onClick={handleAnalyze} className="flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-blue-600 to-purple-600 px-4 py-3 font-semibold text-white shadow-lg transition hover:shadow-xl">
-                <Zap className="h-5 w-5" /> Analyze Concept
+              <button disabled={isAnalyzing} onClick={handleAnalyze} className="flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-blue-600 to-purple-600 px-4 py-3 font-semibold text-white shadow-lg transition hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-70">
+                <Zap className="h-5 w-5" /> {isAnalyzing ? 'Analyzing...' : 'Analyze Concept'}
               </button>
+              {apiError && <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />{apiError}</div>}
               <div className="grid grid-cols-2 gap-2">
                 {[
                   ['Calculus', 'Advanced mathematical analysis of continuous change, limits, derivatives, and integrals.'],
@@ -121,8 +152,9 @@ export function DemoSection() {
                 <div className="rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 p-5 text-white">
                   <div className="mb-2 flex items-center gap-2 text-sm font-medium opacity-90"><Sparkles className="h-4 w-4" /> Final Predicted Difficulty</div>
                   <p className="text-5xl font-bold">{results.final.toFixed(1)}</p>
-                  <p className="mt-2 text-sm opacity-90">{results.final < 3.5 ? 'Easy: suitable for early sequencing.' : results.final < 6.5 ? 'Medium: add prerequisite checks.' : 'Hard: reserve for advanced learners.'}</p>
+                  <p className="mt-2 text-sm opacity-90">{results.summary || (results.final < 3.5 ? 'Easy: suitable for early sequencing.' : results.final < 6.5 ? 'Medium: add prerequisite checks.' : 'Hard: reserve for advanced learners.')}</p>
                 </div>
+                {results.recommendation && <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm font-medium text-blue-900 dark:border-blue-900/60 dark:bg-blue-950/30 dark:text-blue-100">{results.recommendation}</div>}
                 <button onClick={() => setResults(null)} className="flex w-full items-center justify-center gap-2 rounded-lg bg-slate-200 px-4 py-2 font-medium text-slate-900 transition hover:bg-slate-300 dark:bg-slate-700 dark:text-white dark:hover:bg-slate-600">
                   <RotateCcw className="h-4 w-4" /> Clear Results
                 </button>
